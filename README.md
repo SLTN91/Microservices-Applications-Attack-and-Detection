@@ -379,12 +379,14 @@ Start the Worker Services
   systemctl enable containerd kubelet kube-proxy
   systemctl start containerd kubelet kube-proxy
 }
- 
+
+![Cluster Architecture](Images/Picture1.png)
 Figure 1: Cluster Deployment 
 
+![Cluster Architecture](Images/Picture2.png)
 Figure 2: Cluster information
 
- 
+![Cluster Architecture](Images/Picture3.png)
 Figure 3: Cluster Working Nodes
 
 ##### **3.3.7 Cluster DNS**
