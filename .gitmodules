@@ -1,0 +1,3 @@
+[submodule "ReplicaWatcher"]
+	path = ReplicaWatcher
+	url = https://github.com/SLTN91/ReplicaWatcher.git
