@@ -25,6 +25,7 @@
    - [Event Encoding](#event-encoding)
    - [Anomaly Detection](#anomaly-detection)
    - [Extensions or Insights](#extensions-or-insights)
+9. [7.3 Implementation](#Implementation)
 
 ## **7.1 Prerequisites**
 
@@ -1013,12 +1014,396 @@ high-level flow diagram of the code’s workflow:
 
  ![Flow](Images/Picture15.png)
 
+
  
 
-## **7.3 Input and Output Demonstrations**
+## **7.3 Implementation**
+
+Implementation of the system includes system implementation details, after that the testing results of baseline paper ReplicaWatcher. Then, We profiled the normal and malicious behavior of the tested pods from the system calls collected by Sysdig. At the end, we implemented an autoencoder model and trained it to detect anomalies.
 
 
-• Test Cases:
-• Detection Test Cases:
-The objective of the detection test is to simulate and detect attacks using ReplicaWatcher. Each attack will introduce an anomalies which suppose to trigger detection mechanisms.
+
+### **7.3.1 System Implementation Details:**
+In order to replicate the results of ReplicaWatcher paper we had to implement the system that will host the GOB to be tested and validated.  First, we started by deploying Kubernetes cluster using self-hosted workstation with virtualization. The setup includes 4 nodes (VMs), Jumpbox for controlling the cluster, Kubernetes-server as control plane of the cluster and two working nodes. All hosts are deployed on (KVM) linux virtualization software and assigned local IP addresses on virtual switch by the hypervisor.   
+
+ ![Impl](Images/Picture16.png)
+
+ After that we have provisioned PKI to secure communication between all cluster components. Microservices could communicate using the services name, however it requires to setup Kubernetes DNS service thus we deployed CoreDNS and its all-related configurations. Another configuration that has been realized after troubleshooting is to load br_netfilter kernel module to enable the bridging virtual network cards. 
+
+ 
+ ![Cluster Architecture](Images/Picture1.png)
+
+Figure 1: Cluster Deployment 
+
+![Cluster Architecture](Images/Picture2.png)
+
+Figure 2: Cluster information
+
+![Cluster Architecture](Images/Picture3.png)
+
+Figure 3: Cluster Working Nodes
+
+
+### ** 7.3.2 Application Deployment**
+
+There are multiple applications designed to test the implementation of microservice applications and to be used in microservices benchmarking. The baseline paper we chose have used Google Online Boutique (GOB) and an application that they have developed internally but they have not released it. We preferred to proceed with GOB however it is mainly static, therefore we introduce another benchmarking application such as Teastore. We cloned the GOB application then applied the kubernetes-manifest.yaml
+
+
+![Cluster Architecture](Images/Picture7.png)
+
+Figure 7: Deployed services
+
+![Cluster Architecture](Images/Picture8.png)
+
+Figure 8: Application Interface (Through frontend service)
+
+For **Teastore** we applied the manifest directly from Github using the below command
+kubectl create -f
+
+[View teastore-clusterip.yaml](teastore-clusterip.yaml)
+
+![Teastore](Images/Picture30.png)
+
+Teastore provisioned pods 
+
+![Teastore](Images/Picture17.png)
+
+Teastore Web view
+
+Unlike GOB, Teastore does not include load generator service which is needed to model the normal behavior of application. For that we have used Locust, an open-source testing application that generates a legitimate HTTP load. We have configured the locust file to generate legitimate traffic to all application services.
+
+![Teastore](Images//Picture18.png)
+
+Locust load generator for Teastore
+
+
+```python
+from locust import HttpUser, task, between
+import random
+import string
+
+class TeaStoreUser(HttpUser):
+    wait_time = between(1, 3)
+
+    def on_start(self):
+        # Occasionally register a new user instead of reusing existing ones
+        if random.random() < 0.03:  # 3% chance (~1 in 30)
+            self.username, self.password = self.register_user()
+        else:
+            self.username, self.password = self.random_existing_user()
+        self.login()
+
+    def random_existing_user(self):
+        users = [("alice", "alice123"), ("bob", "securepass"), ("charlie", "welcome1")]
+        return random.choice(users)
+
+    def register_user(self):
+        # Randomly generate a unique user
+        username = 'user' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        password = 'pass' + ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+
+        # Register the user
+        self.client.post("/tools.descartes.teastore.webui/register", data={
+            "referer": "http://192.168.122.199:30080/",
+            "username": username,
+            "password": password,
+            "passwordRepeat": password
+        })
+        return username, password
+
+    def login(self):
+        self.client.post("/tools.descartes.teastore.webui/loginAction", data={
+            "referer": "http://192.168.122.199:30080/",
+            "username": self.username,
+            "password": self.password,
+            "signin": "Sign in"
+        })
+
+    @task(3)
+    def home_page(self):
+        self.client.get("/tools.descartes.teastore.webui")
+
+    @task(5)
+    def browse_categories(self):
+        category = random.randint(2, 6)
+        self.client.get(f"/tools.descartes.teastore.webui/category?category={category}")
+
+    @task(4)
+    def add_to_cart(self):
+        product = random.randint(0, 20)
+        self.client.post("/tools.descartes.teastore.webui/cart", data={
+            "add": product,
+            "quantity": 1
+        })
+
+    @task(2)
+    def view_cart(self):
+        self.client.get("/tools.descartes.teastore.webui/cart")
+
+    @task(1)
+    def checkout(self):
+        self.client.post("/tools.descartes.teastore.webui/order", data={
+            "order": "true"
+        })
+
+    @task(1)
+    def logout(self):
+        self.client.get("/tools.descartes.teastore.webui/logout")
+        self.login()  # Log in again to simulate session reuse
+
+```
+
+
+### ** 7.3.3 Attacks Simulation**
+
+One of the clear limitation of replicawatcher that is also identified by the publications is the inability of the used training-less method of detecting uniform and brute force attacks. We will simulate a couple of attacks as descriped in the below table.
+
+
+| Attack Type             | Reference CWE | Targeted Service   | Implementation |
+|-------------------------|----------------|--------------------|----------------|
+| **Brute Force Login**   | CWE-307        | Teastore-auth      | <pre>hydra -l Testtt -P rockyou1.txt 192.168.122.199 -s 30080 http-post-form \
+"/tools.descartes.teastore.webui/loginAction:username=^USER^&password=^PASS^&referer=http%3A%2F%2F192.168.122.199%3A30080%2F&signin=Sign+in:F=302" \
+-vV -t 4</pre> |
+| **Directory Traversal** | CWE-022        | frontend           | <pre>curl "http://&lt;teastore-ip&gt;:30080/tools.descartes.teastore.imageprovider/rest/image/../../../etc/passwd"</pre> |
+| **Denial of Service (DoS)** | CWE-400    | Teastore-WebUI     | <pre>seq 1 1000 \| xargs -n1 -P100 curl -s \
+"http://192.168.122.199:30080/tools.descartes.teastore.webui/rest/products" &gt; /dev/null</pre> |
+
+
+### ** 7.3.4 ReplicaWatcher Implementation**
+
+Replicawatcher consists of two main components, one collection component used as part of daemonset that collects system calls in snapshots of 30 seconds. Another component is the analysis using Jaccard intersection to analyze system calls vector collected by the first component. We implemented a system of collection using cronjobs at the jumpbox to SSH into the worker nodes collecting snapshots of system calls that are collected by Sysdig.  In addition, the target pods to be tested throughout the attacks is frontend, therefore it needed to be scaled up to 4 replicas to compare pod’s behavior to another. And we modified the replicawatcher chisel to fix the filtering and enable the collection, below is an example of collected snapshot using Sysdig with replicawatcher chisel
+
+![Repl](Images//Picture19.png)
+
+System calls snapshot collected by sysdig
+
+
+The anomaly detection component of Replicawatcher encodes the collected information of Sysdig into vectors then the Jaccard intersection is calculated to find which pod is behaving abnormally. We applied a directory traversal attack on the frontend service while the collection is running and the below had resulted of replicawatcher. 
+
+![Repl](Images/Picture20.png)
+
+Result of directory traversal attack
+
+
+The results show that there are still many noises which affect the anomaly detection application on the small threshold. After many attempts the most accurate threshold is between 0.5 and 0.6. 
+Next, we tested the Replicawatcher with Brute force attack against Teastore-auth service which we scaled-up to 4 pods.  We tested the brute force attack once before the attack and during the attack and it shows the following
+
+![Repl](Images//Picture21.png)
+
+Analyzing the collected snapshots before executing the brute force attack
+
+
+![Repl](Images/Picture22.png)
+
+Analyzing the collected snapshots that includes the brute force attack
+
+It also proves the limitation replicawatcher in detecting the brute force attack and the noise persists during the attack. 
+And lastly, we tested the DoS attack on the Teastore-Webui after scaling up the webui pods to 4. below shows the status of Replicawatcher
+
+
+![Repl](Images/Picture23.png)
+
+Analyzing the collected snapshots before executing the DoS attack
+
+
+![Repl](Images//Picture24.png)
+
+Analyzing the collected snapshots that includes the DoS attack
+
+
+Also in DoS, Replicawatcher shows inaccuracy and huge noise that adds an anomaly with every snapshot added. To conclude the Replicawatcher in all 3 attacks shows a lot of noise and discrepancies and is unable to detect attacks and especially the uniform attacks such as brute force and DoS. Furthermore, if anomaly is detected by Replicawatcher  is unable to identify the infected pod due to the symmetrical Jaccard intersection.
+
+
+### ** 7.3.4 Malicious Behavior Profiling**
+
+Analyzing the malicious behavior’s impact on system is crucial, thus we chose to analyz the impact of Directory Traversal and Brute Force attacks on the system. 
+We have collected two datasets using Sysdig from the frontend service in two modes to understand the behavior of the pods; during normal operations and during attack.
+
+**•	Normal operation data (collection_no_attack_DT.csv): 22,254 system call records**
+**•	During-attack Directory Traversal data (collection_with_attack_DT.csv): 18,648 system call records**
+
+We have analyzed the frequency of system calls in both cases and it shows that the frequency is still largely dominated with the normal workload (wait epoll, thread synchronization, and I/O), however, there were notable differences. First, the are some system calls that are shown in normal operations and upsent during the attack such as socket(), connect(), getpeername(). Second, there are system calls that are present with high presence during the attack in contrast to normal operation getpid(), tgkill(), signaldeliver(), rt_signature(). And finally, sched_yield() system call experienced drastic decrease in frequency. 
+
+![Syscall](Images/Picture25.png)
+
+System call frequency Normal vs Attack – Directory Traversal
+
+
+The increase in usage of error handling system calls is a clear indicative of the unsuccessful attack.
+After that we have conducted sequence analysis of system calls and during normal operation, we can see that there is a tight wait loop using epoll_pwait() and it normally transitions to itself, futux(), and switch().  However, during the attack another pattern appears which is responsible for signal handling getpid() à tgkill() à signaldeliver() à rt_sigreturn().
+
+
+| Aspect                                           | Normal Operation                          | During Attack Attempt                                  | Behavior Change / Detection Clue                        |
+|--------------------------------------------------|--------------------------------------------|--------------------------------------------------------|---------------------------------------------------------|
+| **read → read Sequences**                        | Common                                     | Still common but slightly fewer                        | Slightly fewer sustained reads                          |
+| **write → write Sequences**                      | Frequent                                   | Less frequent                                          | Shorter/lighter responses                               |
+| **New Connections (accept4)**                    | 8 times                                    | 12 times                                               | Slight increase → more client attempts                 |
+| **socket, connect, getpeername Calls**           | Present                                    | Absent                                                 | Server avoided external connections under attack        |
+| **getpid, tgkill, signaldeliver, rt_sigreturn**  | Very rare                                  | Repeatedly seen                                        | **Strong anomaly**: attack triggered signals             |
+| **Transition Pattern**                           | Epoll ↔ Futex ↔ Read ↔ Write loops         | Same loops + signal handling                           | Signal sequences only during attack                     |
+| **Signal Sequences (getpid → tgkill → ...)**     | None                                       | 12+ times                                              | Strong indicator of attack attempt                      |
+| **Scheduling Patterns**                          | Normal sleep/yield loops                   | More frequent switch → nanosleep cycles                | More idle sleeping post-attack                          |
+| **Processing Flow**                              | Regular request → process → response       | Likely early abort after malicious input               | Premature session termination signs                     |
+
+
+After that, we have collected two datasets using Sysdig from the Teastore-auth service in two modes to understand the behavior of the pods; during normal operations and during attack.
+
+ •	Normal operation data (collection.csv): 30,627 system call records
+•	During-attack Brute Force data (collection1.csv): 33,136 system call records
+
+Also in brute force attack, the normal workload persists in both scenarios. However, there is a notable increase in futux() and switch(). On the other hand, notable decrease on read() and lseek(). Also, there is an introduction gettid() and sysinfo() which indicate an increase in querying threads and system resource.
+
+
+![Syscall](Images//Picture26.png)
+
+System call frequency Normal vs Attack – Brute Force
+
+The increase in synchronization (futux) context switching (switch) and querying thread ids the system resource (gettid, sysinfo) indicate that the service is under unusual load. 
+For sequence analysis, the introduction gettid() -> gettid() and sysinfo() -> sysinfo() indicate that system is experiencing abnormal load.
+
+
+| Transition (2-gram)            | Normal Frequency | Attack Frequency | Behavior Change / Interpretation                                  |
+|--------------------------------|------------------|------------------|-------------------------------------------------------------------|
+| **futex → futex**              | ~5,800           | ~6,500           | Increased thread synchronization under load                      |
+| **read → read**                | ~4,400           | ~3,800           | Fewer repeated reads – shorter session per login attempt          |
+| **lseek → lseek**              | ~2,700           | ~2,200           | Slight drop – fewer file pointer moves under stress               |
+| **futex → switch**             | ~1,800           | ~2,000           | More frequent context switches following futex waits              |
+| **switch → futex**             | ~1,800           | ~2,100           | More threads waking into futex waits                              |
+| **gettid → gettid**            | ~7               | ~1,100           | **Strong signal**: burst of thread ID lookups (per login attempt) |
+| **sysinfo → sysinfo**          | 0                | ~120             | Repeated system status polling (stress signal)                    |
+| **recvfrom → recvfrom**        | ~50              | ~60              | Slight increase – more incoming request reads                     |
+| **sendto → sendto**            | ~100             | ~70              | Slight drop – possibly shorter error responses                    |
+| **switch → nanosleep**         | Low              | Moderate         | Suggests short pauses or rate limiting under attack               |
+| **read → futex**               | Moderate         | Moderate+        | Slightly more thread waiting after reads (e.g., lock for auth check) |
+| **accept → fcntl**             | 0                | Present (~10)    | Socket configuration only during attack                           |
+| **clone → set_robust_list**    | 0                | Present (~4)     | Thread creation and setup only under attack                       |
+
+
+### ** 7.3.5 Implementation of ML model**
+
+From the previous section we understood that there are different behaviors during normal operations vs during attack. We can use an ML model to help detect these behaviors. 
+There is a limitation in finding a labeled dataset specific for system calls and for microservice applications, thus we chose the autoencoder as unsupervised ML model. We considered the system calls sequence as our main feature for the model. Below is the diagram that represents the model.
+
+![ML](Images/Picture27.png)
+
+LSTM Autoencoder flow
+
+```python
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+
+train_path = "collection_normalTeastore_Auth.csv"  
+test_path  = "collection_Teastore_Auth_BruteForce.csv"    
+
+train_calls = pd.read_csv(train_path, header=None)
+test_calls  = pd.read_csv(test_path,  header=None)
+
+le = LabelEncoder()
+
+all_calls = pd.concat([train_calls, test_calls], axis=0)
+le.fit(all_calls)
+
+train_labels = le.transform(train_calls)
+test_labels  = le.transform(test_calls)
+
+SEQ_LEN = 256
+
+def chunk_sequence(labels, seq_len):
+    total_labels = len(labels)
+    remainder = total_labels % seq_len
+    if remainder != 0:
+        labels = labels[: total_labels - remainder]
+    sequences = np.array(labels).reshape(-1, seq_len)
+    return sequences
+
+train_sequences = chunk_sequence(train_labels, SEQ_LEN)
+test_sequences  = chunk_sequence(test_labels, SEQ_LEN)
+
+print(f"Total training calls: {len(train_calls)} -> Training sequences: {train_sequences.shape[0]} of length {SEQ_LEN}")
+print(f"Total test calls: {len(test_calls)} -> Test sequences: {test_sequences.shape[0]} of length {SEQ_LEN}")
+
+train_tensor = torch.tensor(train_sequences, dtype=torch.long)
+test_tensor  = torch.tensor(test_sequences, dtype=torch.long)
+
+batch_size = 64
+train_dataset = TensorDataset(train_tensor)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+class LSTMAutoencoder(nn.Module):
+    def __init__(self, num_classes, embed_dim=16, hidden_dim=64):
+        super(LSTMAutoencoder, self).__init__()
+        self.embedding = nn.Embedding(num_classes, embed_dim)
+        self.encoder_lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
+        self.decoder_lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
+        self.output_layer = nn.Linear(hidden_dim, 1)
+    def forward(self, x):
+        batch_size, seq_len = x.size()
+        x_embed = self.embedding(x)                      
+        _, (h_n, c_n) = self.encoder_lstm(x_embed)       
+        decoder_inputs = torch.zeros(batch_size, seq_len, self.decoder_lstm.input_size, device=x.device)
+        decoder_out, _ = self.decoder_lstm(decoder_inputs, (h_n, c_n))   
+        out = self.output_layer(decoder_out)             
+        out = out.squeeze(-1)                            
+        return out
+
+num_classes = len(le.classes_)  
+model = LSTMAutoencoder(num_classes, embed_dim=16, hidden_dim=64).to(device)
+
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+epochs = 200
+for epoch in range(1, epochs+1):
+    model.train()
+    total_loss = 0.0
+    for batch_data in train_loader:
+        batch_seq = batch_data[0].to(device)        
+        optimizer.zero_grad()
+        recon_seq = model(batch_seq)
+        loss = criterion(recon_seq, batch_seq.float())
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item() * batch_seq.size(0)
+    avg_loss = total_loss / len(train_dataset)  
+    print(f"Epoch {epoch}/{epochs}, Training Loss: {avg_loss:.6f}")
+
+model.eval()
+with torch.no_grad():
+    train_recon = model(train_tensor.to(device))
+    train_errors = ((train_recon - train_tensor.to(device).float()) ** 2).mean(dim=1).cpu().numpy()
+    threshold = train_errors.mean() + .2 * train_errors.std()
+    print(f"Computed anomaly threshold (mean + 1.5*sigma) = {threshold}")
+
+    test_recon = model(test_tensor.to(device))
+    test_errors = ((test_recon - test_tensor.to(device).float()) ** 2).mean(dim=1).cpu().numpy()
+
+    anomaly_flags = test_errors > threshold
+    num_anomalies = np.sum(anomaly_flags)
+    print(f"Number of anomaly sequences in test: {num_anomalies} out of {len(test_errors)}")
+
+    for idx, is_anomaly in enumerate(anomaly_flags):
+        if is_anomaly:
+            print(f"Sequence {idx} flagged as anomaly with loss {test_errors[idx]:.6f}")
+
+    results_df = pd.DataFrame({
+        "sequence_index": np.arange(len(test_errors)),
+        "loss": test_errors,
+        "anomaly_flag": anomaly_flags.astype(int)
+    })
+    results_df.to_csv("test_anomaly_results.csv", index=False)
+    print("Anomaly detection results saved to test_anomaly_results.csv")
+
+```
+
+## **Results and Discussion**
+
+The rest ...
+
 
