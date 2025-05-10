@@ -380,13 +380,16 @@ Start the Worker Services
   systemctl start containerd kubelet kube-proxy
 }
 
-!(Images/Picture1.png)
+![Cluster Architecture](Images/Picture1.png)
+
 Figure 1: Cluster Deployment 
 
 ![Cluster Architecture](Images/Picture2.png)
+
 Figure 2: Cluster information
 
 ![Cluster Architecture](Images/Picture3.png)
+
 Figure 3: Cluster Working Nodes
 
 ##### **3.3.7 Cluster DNS**
@@ -592,6 +595,8 @@ metadata:
   name: coredns
   namespace: kube-system
 
+![Cluster Architecture](Images/Picture4.png)
+
  Figure 4: DNS Configuration Result
 
 6.	Mounting br_netfilter kernel module
@@ -604,15 +609,21 @@ git clone https://github.com/GoogleCloudPlatform/microservices-demo.git
 2.	Deploy Application
 kubectl apply -f release/kubernetes-manifests.yaml
 
+![Cluster Architecture](Images/Picture5.png)
+
  Figure 5: GOB deployment
+
+![Cluster Architecture](Images/Picture6.png)
 
  Figure 6: Deployed pods
 
+![Cluster Architecture](Images/Picture7.png)
 
- 
 Figure 7: Deployed services
 
- Figure 8: Application Interface (Through frontend service)
+![Cluster Architecture](Images/Picture8.png)
+
+Figure 8: Application Interface (Through frontend service)
 
 
 ## **Install Sysdig & Chisel Scripts**
@@ -709,13 +720,17 @@ spec:
 ## **Install ReplicaWatcher Tool**
 1.	Collection of generated logs to monitoring node (jumpbox) through cronjob scripts to collection directory /home/adman/collection/
 
- 
+
+![Cluster Architecture](Images/Picture9.png)
+
 Figure 9: Collection cronjobs from both nodes
 
 2.	Running the detection scripts on the collected logs
 python3 replicawatcher.py /home/adman/collection
 
- Figure 10: Running Replicawatcher on collected logs
+![Running Reolicawatcher](Images/Picture10.png)
+
+Figure 10: Running Replicawatcher on collected logs
 
 
 ## **Execution Steps**
@@ -802,10 +817,13 @@ Replicawatcher designed to detect anomalies in replicas
 •	Anomaly Detection. 
 
 Each stage uses specific algorithms and techniques to process replica activity data without relying on a training phase.
-Event Chunking 
+
+### **Event Chunking**
 
 In this stage, Replicawatcher uses  the captured syscalls from Sysdig with a customized Chisel script to analyze kernel-level events. These events include filesystem interactions, executed commands, and system calls. The captured events are divided into time-bound snapshots, each describing the activities of replicas during a predefined interval (τsnapshot) 
-   
+
+![Event Encoding](Images/Picture11.png)
+
 
 
 –	Initialization callback to initializes the event fields and sets filters for monitoring a specific deployment
@@ -881,6 +899,9 @@ end
 ### **Event Encoding**
 
 This stage processes the captured events from the previous stage and encodes them into structured representations. The primary goal is to extract meaningful patterns by defining disimlirity scores from raw data that allow replicas to be compared effectively and to ensures that Replicawatcher can identify anomalies while minimizing false positives.
+
+![Event Encoding](Images/Picture12.png)
+
  
 The stage will take the captured json file to multiple steps to process it :
 –	Preprocess  involves extracting key attributes from the raw event data for subsequent analysis, such as syscalls, file operations, and process metadata.  This step consider as feature selection to ensure the data filtered from noise , duplicate features , and normalize paths.
@@ -931,6 +952,9 @@ def calculate_replicas_vectors(self, data):
 
 ### **Anomaly Detection**
 
+![AnDet](Images/Picture13.png)
+
+
 This is the final stage to give decision on the replicas behavior by evaluating the dissimilarity vectors. It assumes that normal replicas have similar behaviors, and anomalies are identified as replicas whose vectors deviate significantly from the expected pattern, as measured by their distance from the origin of the vector space or from other replicas.
 
 **At this stage Replicawatcher will decide the legitimately of the behavior based on the following:**
@@ -974,7 +998,8 @@ ReplicaWatcher significantly enhances detection accuracy through its innovative,
 
 •	Superior Detection Metrics: Achieving an average precision of 91.08% and a recall of 98.35%, ReplicaWatcher matches the performance of leading training-based solutions without the challenges of model maintenance and retraining.
 
- 
+ ![Extensions](Images/Picture14.png)
+
 
 
 •	Adaptability to Shifting Norms: The system is inherently resilient to normality shifts, such as those caused by software updates, which can often degrade the performance of conventional systems. ReplicaWatcher adapts effortlessly, maintaining consistent detection accuracy without manual recalibration.
@@ -983,12 +1008,14 @@ ReplicaWatcher significantly enhances detection accuracy through its innovative,
 
 
 
-• Flow Diagram:
+ #### **• Flow Diagram:**
 high-level flow diagram of the code’s workflow:
+
+ ![Flow](Images/Picture15.png)
 
  
 
-**7.3 Input and Output Demonstrations**
+## **7.3 Input and Output Demonstrations**
 
 
 • Test Cases:
