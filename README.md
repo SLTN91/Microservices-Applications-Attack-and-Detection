@@ -380,7 +380,7 @@ Start the Worker Services
   systemctl start containerd kubelet kube-proxy
 }
 
-![Cluster Architecture](Images/Picture1.png)
+!(Images/Picture1.png)
 Figure 1: Cluster Deployment 
 
 ![Cluster Architecture](Images/Picture2.png)
